@@ -1,0 +1,57 @@
+[
+  {
+    "case_id": "sample_pass",
+    "title": "Fully Supported Launch Report",
+    "description": "A fictional launch report with two clearly supported factual claims.",
+    "answer_text": "The Aurora pilot launched on June 15 [E1]. The pilot enrolled 120 participants [E2].",
+    "evidence": [
+      {
+        "evidence_id": "E1",
+        "text": "The Aurora pilot launched on June 15.",
+        "source": "Aurora launch report",
+        "source_type": "report",
+        "reliability_score": 0.95
+      },
+      {
+        "evidence_id": "E2",
+        "text": "The Aurora pilot enrolled 120 participants.",
+        "source": "Aurora enrollment log",
+        "source_type": "log",
+        "reliability_score": 0.94
+      }
+    ],
+    "expected_verdict": "pass"
+  },
+  {
+    "case_id": "sample_review",
+    "title": "Preliminary Performance Finding",
+    "description": "A fictional case where the claim is supported by preliminary evidence that is below the moderate reliability threshold.",
+    "answer_text": "Early testing found that the Atlas workflow reduced average processing time by 18% [E1].",
+    "evidence": [
+      {
+        "evidence_id": "E1",
+        "text": "Preliminary testing found an 18% reduction in average processing time.",
+        "source": "Atlas test summary",
+        "source_type": "summary",
+        "reliability_score": 0.55
+      }
+    ],
+    "expected_verdict": "review"
+  },
+  {
+    "case_id": "sample_fail",
+    "title": "Contradicted Revenue Claim",
+    "description": "A fictional case where the claim is contradicted by a high-reliability evidence item.",
+    "answer_text": "Quarterly revenue increased by 12% [E1].",
+    "evidence": [
+      {
+        "evidence_id": "E1",
+        "text": "Quarterly revenue increased by 8%, not 12%.",
+        "source": "Atlas finance memo",
+        "source_type": "memo",
+        "reliability_score": 0.96
+      }
+    ],
+    "expected_verdict": "fail"
+  }
+]

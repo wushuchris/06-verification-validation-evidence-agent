@@ -1,0 +1,137 @@
+[
+  {
+    "case_id": "eval_supported",
+    "title": "Two Fully Supported Claims",
+    "answer_text": "The Helios trial began on March 4 [E1]. The trial included 75 participants [E2].",
+    "evidence": [
+      {
+        "evidence_id": "E1",
+        "text": "The Helios trial began on March 4.",
+        "source": "Helios launch memo",
+        "source_type": "memo",
+        "reliability_score": 0.95
+      },
+      {
+        "evidence_id": "E2",
+        "text": "The Helios trial included 75 participants.",
+        "source": "Helios enrollment report",
+        "source_type": "report",
+        "reliability_score": 0.94
+      }
+    ],
+    "expected_verdict": "pass",
+    "expected_claim_statuses": [
+      "supported",
+      "supported"
+    ],
+    "expected_human_review": false,
+    "evaluation_focus": "Correctly passes multiple supported claims."
+  },
+  {
+    "case_id": "eval_numeric_contradiction",
+    "title": "Numeric Contradiction",
+    "answer_text": "The Orion program reduced operating costs by 22% [E1].",
+    "evidence": [
+      {
+        "evidence_id": "E1",
+        "text": "The Orion program reduced operating costs by 14%, not 22%.",
+        "source": "Orion finance note",
+        "source_type": "note",
+        "reliability_score": 0.95
+      }
+    ],
+    "expected_verdict": "fail",
+    "expected_claim_statuses": [
+      "contradicted"
+    ],
+    "expected_human_review": true,
+    "evaluation_focus": "Detects conflicting explicit numeric values."
+  },
+  {
+    "case_id": "eval_negation_contradiction",
+    "title": "Negation Contradiction",
+    "answer_text": "The Meridian system passed the security review [E1].",
+    "evidence": [
+      {
+        "evidence_id": "E1",
+        "text": "The Meridian system did not pass the security review.",
+        "source": "Meridian audit summary",
+        "source_type": "summary",
+        "reliability_score": 0.96
+      }
+    ],
+    "expected_verdict": "fail",
+    "expected_claim_statuses": [
+      "contradicted"
+    ],
+    "expected_human_review": true,
+    "evaluation_focus": "Detects contradiction caused by negation."
+  },
+  {
+    "case_id": "eval_low_reliability",
+    "title": "Low-Reliability Supporting Evidence",
+    "answer_text": "Initial testing showed that the Solstice workflow improved throughput by 16% [E1].",
+    "evidence": [
+      {
+        "evidence_id": "E1",
+        "text": "Initial testing showed that the Solstice workflow improved throughput by 16%.",
+        "source": "Solstice test summary",
+        "source_type": "summary",
+        "reliability_score": 0.55
+      }
+    ],
+    "expected_verdict": "review",
+    "expected_claim_statuses": [
+      "partially_supported"
+    ],
+    "expected_human_review": false,
+    "evaluation_focus": "Downgrades otherwise strong support because evidence reliability is below the moderate threshold."
+  },
+  {
+    "case_id": "eval_citation_mismatch",
+    "title": "Citation Does Not Support Claim",
+    "answer_text": "The Vega prototype completed its field test on September 9 [E2].",
+    "evidence": [
+      {
+        "evidence_id": "E1",
+        "text": "The Vega prototype completed its field test on September 9.",
+        "source": "Vega field test report",
+        "source_type": "report",
+        "reliability_score": 0.88
+      },
+      {
+        "evidence_id": "E2",
+        "text": "Vega equipment inventory update for the quarter.",
+        "source": "Vega inventory log",
+        "source_type": "log",
+        "reliability_score": 0.90
+      }
+    ],
+    "expected_verdict": "review",
+    "expected_claim_statuses": [
+      "supported"
+    ],
+    "expected_human_review": true,
+    "evaluation_focus": "Separates factual support from citation validity."
+  },
+  {
+    "case_id": "eval_not_verifiable",
+    "title": "Insufficient Relevant Evidence",
+    "answer_text": "The Borealis facility received final regulatory approval in May [E1].",
+    "evidence": [
+      {
+        "evidence_id": "E1",
+        "text": "Borealis employee orientation schedules for May.",
+        "source": "Borealis staffing plan",
+        "source_type": "plan",
+        "reliability_score": 0.90
+      }
+    ],
+    "expected_verdict": "review",
+    "expected_claim_statuses": [
+      "not_verifiable"
+    ],
+    "expected_human_review": true,
+    "evaluation_focus": "Avoids claiming support when the supplied evidence is unrelated."
+  }
+]

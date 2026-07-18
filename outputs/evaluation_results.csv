@@ -1,0 +1,7 @@
+case_id,title,evaluation_focus,expected_verdict,actual_verdict,verdict_correct,expected_claim_statuses,actual_claim_statuses,statuses_correct,expected_human_review,actual_human_review,human_review_correct,case_passed,error
+eval_supported,Two Fully Supported Claims,Correctly passes multiple supported claims.,pass,pass,True,"supported, supported","supported, supported",True,False,False,True,True,
+eval_numeric_contradiction,Numeric Contradiction,Detects conflicting explicit numeric values.,fail,fail,True,contradicted,contradicted,True,True,True,True,True,
+eval_negation_contradiction,Negation Contradiction,Detects contradiction caused by negation.,fail,fail,True,contradicted,contradicted,True,True,True,True,True,
+eval_low_reliability,Low-Reliability Supporting Evidence,Downgrades otherwise strong support because evidence reliability is below the moderate threshold.,review,review,True,partially_supported,partially_supported,True,False,False,True,True,
+eval_citation_mismatch,Citation Does Not Support Claim,Separates factual support from citation validity.,review,review,True,supported,supported,True,True,True,True,True,
+eval_not_verifiable,Insufficient Relevant Evidence,Avoids claiming support when the supplied evidence is unrelated.,review,review,True,not_verifiable,not_verifiable,True,True,True,True,True,
