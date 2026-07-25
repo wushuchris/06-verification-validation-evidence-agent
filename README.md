@@ -17,6 +17,8 @@ models:
 
 A deterministic evidence-auditing agent that extracts factual claims from AI-generated text, matches those claims against supplied evidence, validates citations, detects contradictions, and produces an auditable PASS, REVIEW, or FAIL verdict.
 
+**Live Demo:** [Hugging Face Space](https://huggingface.co/spaces/FlyingNunchucks/06-verification-validation-evidence-agent)
+
 ## Overview
 
 This project evaluates whether AI-generated factual claims are supported by a user-supplied evidence collection. It does not independently prove that the supplied sources are true. Instead, it evaluates alignment between claims and supplied evidence.
