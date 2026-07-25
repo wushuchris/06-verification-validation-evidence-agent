@@ -18,7 +18,7 @@ jobs:
         uses: huggingface/hub-sync@v0.1.0
         with:
           github_repo_id: ${{ github.repository }}
-          huggingface_repo_id: wushuchris/06-verification-validation-evidence-agent
+          huggingface_repo_id: FlyingNunchucks/06-verification-validation-evidence-agent
           hf_token: ${{ secrets.HF_TOKEN }}
           repo_type: space
           space_sdk: gradio
