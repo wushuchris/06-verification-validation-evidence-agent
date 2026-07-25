@@ -1,3 +1,18 @@
+---
+title: Verification Validation Evidence Agent
+emoji: ✅
+colorFrom: blue
+colorTo: indigo
+sdk: gradio
+sdk_version: 6.20.0
+python_version: 3.11
+app_file: app.py
+pinned: false
+short_description: Audit AI-generated claims against supplied evidence.
+models:
+  - sentence-transformers/all-MiniLM-L6-v2
+---
+
 # Verification, Validation & Evidence Agent
 
 A deterministic evidence-auditing agent that extracts factual claims from AI-generated text, matches those claims against supplied evidence, validates citations, detects contradictions, and produces an auditable PASS, REVIEW, or FAIL verdict.
