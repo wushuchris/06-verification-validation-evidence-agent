@@ -8,54 +8,125 @@ sdk_version: 6.20.0
 python_version: 3.11
 app_file: app.py
 pinned: false
-short_description: Audit AI-generated claims against supplied evidence.
+short_description: Gate AI-generated claims against supplied evidence.
 models:
   - sentence-transformers/all-MiniLM-L6-v2
 ---
 
 # Verification, Validation & Evidence Agent
 
-A deterministic evidence-auditing agent that extracts factual claims from AI-generated text, matches those claims against supplied evidence, validates citations, detects contradictions, and produces an auditable PASS, REVIEW, or FAIL verdict.
+A deterministic **AI evidence-review gate** that extracts factual claims from AI-generated text, matches those claims against supplied evidence, validates citations, detects contradictions, and produces an auditable **PASS, REVIEW, or FAIL** verdict before someone relies on the answer.
 
 **Live Demo:** [Hugging Face Space](https://huggingface.co/spaces/FlyingNunchucks/06-verification-validation-evidence-agent)
 
-## Overview
+> **Semantic matching retrieves. Deterministic rules decide. Humans resolve uncertainty.**
 
-This project evaluates whether AI-generated factual claims are supported by a user-supplied evidence collection. It does not independently prove that the supplied sources are true. Instead, it evaluates alignment between claims and supplied evidence.
+## Business Problem
 
-> Semantic matching retrieves. Deterministic rules decide. Humans resolve uncertainty.
+AI-generated answers can sound confident even when individual statements are weakly supported, contradicted by available evidence, cited incorrectly, or not verifiable from the material provided.
 
-## What It Checks
+Agent 6 inserts an evidence-review boundary between an AI answer and downstream reliance:
 
-The agent checks:
+```text
+AI-generated answer
+        |
+        v
+Extract factual claims
+        |
+        v
+Match claims to supplied evidence
+        |
+        v
+Check contradictions, citations, and reliability
+        |
+        v
+Classify each claim
+        |
+        v
+PASS / REVIEW / FAIL
+        |
+        v
+Human review when uncertainty remains
+```
 
-- factual claim coverage
-- semantic evidence relevance
-- lexical overlap
-- explicit numerical contradictions
-- negation contradictions
-- missing evidence citations
-- citation mismatches
-- evidence reliability
-- human-review requirements
+The system is intentionally conservative. It does **not** independently prove that the supplied evidence is true.
+
+## The Evidence Boundary
+
+The verifier can answer questions such as:
+
+- Does this claim align with the supplied evidence?
+- Is the strongest matching evidence sufficiently relevant?
+- Does the claim conflict with an explicit number or negation in the evidence?
+- Does the cited evidence actually support the claim?
+- Is the supplied evidence too weak or unrelated to verify the claim?
+- Should a human review the result before relying on it?
+
+It cannot establish that the source documents themselves are truthful, complete, current, unbiased, or authoritative beyond the information supplied to the system.
+
+**A PASS therefore means:** the extracted claims align with the supplied evidence under the implemented verification rules and no human-review condition was triggered.
+
+**A PASS does not mean:** independently proven real-world truth.
 
 ## Claim Statuses
 
-The verification engine assigns one of these claim-level statuses:
+Each extracted claim receives one deterministic status:
 
-- supported: the claim is well aligned with the supplied evidence.
-- partially_supported: the match is present but weaker, less reliable, or only partly aligned.
-- unsupported: the claim is not meaningfully supported by the evidence.
-- contradicted: the evidence directly conflicts with the claim.
-- not_verifiable: the supplied evidence is insufficient or too unrelated to validate the claim.
+- **supported** — the claim is well aligned with the supplied evidence.
+- **partially_supported** — relevant support exists, but the match or evidence quality is weaker.
+- **unsupported** — the available evidence does not sufficiently support the claim.
+- **contradicted** — supplied evidence directly conflicts with the claim under the implemented contradiction checks.
+- **not_verifiable** — the supplied evidence is insufficient or too unrelated to validate the claim.
 
 ## Overall Verdicts
 
-The workflow aggregates claim results into one of three verdicts:
+Claim-level results roll up into one of three workflow outcomes:
 
-- PASS: every extracted claim is supported and no human review is required.
-- REVIEW: no claim fails, but at least one claim is partially supported, unverifiable, or requires human review.
-- FAIL: at least one claim is unsupported or contradicted.
+- **PASS** — every extracted claim is supported and no human review is required.
+- **REVIEW** — no claim fails, but at least one claim is partially supported, not verifiable, citation-problematic, or otherwise requires human review.
+- **FAIL** — at least one claim is unsupported or contradicted.
+
+This separates automated evidence review from final human judgment.
+
+## Live Verification Observability
+
+The verification engine exposes a reusable `verify_iter()` interface that yields events from the **real deterministic verification workflow**.
+
+The live demo can therefore show actual stages as they occur:
+
+1. `verification_started`
+2. `claims_extracted`
+3. `evidence_matching_started`
+4. `evidence_matched`
+5. `claim_verified`
+6. `report_completed`
+
+The standard `verify()` and `verify_text()` APIs still consume this same workflow and return the final report, so the interactive demo is not a separate simulated verification path.
+
+## Business-First Demo
+
+The Hugging Face Space was redesigned around the question:
+
+> **Can this AI-generated answer clear an evidence review before someone relies on it?**
+
+The presentation uses a centered **1080px** reading path and leads with the decision story rather than raw JSON.
+
+The default synthetic demonstration is a **contradicted revenue claim**, making the failure case immediately visible. The demo includes:
+
+- a clear explanation of the evidence boundary,
+- a plain-English PASS / REVIEW / FAIL guide,
+- editable synthetic AI output,
+- supplied evidence in a secondary accordion,
+- **Live Evidence Review** driven by real `verify_iter()` events,
+- a business-facing Decision Review,
+- readable claim-level cards,
+- a Claim Audit table,
+- explicit Evidence & Limits guidance,
+- a full Engineering Audit,
+- architecture documentation,
+- and downloadable JSON / CSV / Markdown audit artifacts.
+
+The generic Gradio progress treatment is hidden so the verification workflow itself owns the visible execution experience.
 
 ## Architecture
 
@@ -64,53 +135,65 @@ AI-Generated Answer
         |
         v
 Claim Extractor
+  - deterministic sentence/claim parsing
+  - citation extraction
         |
         v
 Evidence Matcher
-  - semantic similarity
+  - sentence-transformer semantic similarity
   - lexical overlap
+  - cited-evidence retention
         |
         v
 Deterministic Rules Engine
-  - contradiction checks
+  - relevance thresholds
+  - explicit numeric contradiction checks
+  - negation contradiction checks
   - citation validation
   - reliability checks
+  - human-review escalation
         |
         v
 Verification Report
-  - claim-level results
+  - claim-level status
+  - evidence strength
+  - confidence
+  - issues / rationale
   - PASS / REVIEW / FAIL
-  - JSON / CSV / Markdown audit package
+        |
+        v
+Audit Package
+  - JSON
+  - CSV
+  - Markdown
 ```
 
-The main modules are:
+### Main Modules
 
-- src/schemas.py: shared Pydantic models for claims, evidence, matches, and reports.
-- src/claim_extractor.py: deterministic extraction of factual claims from answer text.
-- src/evidence_matcher.py: evidence matching using semantic similarity and lexical overlap.
-- src/rules.py: deterministic verification heuristics for contradictions, reliability, and citation issues.
-- src/verifier.py: orchestration layer that assembles claim extraction, matching, and verification.
-- src/reporting.py: formatting and export helpers for Markdown, CSV, and JSON outputs.
-- app.py: local Gradio interface for interactive verification and audit-package download.
-- evals/run_evaluation.py: deterministic evaluation runner for the synthetic benchmark cases.
+- `src/schemas.py` — Pydantic models for claims, evidence, matches, verification events, and reports.
+- `src/claim_extractor.py` — deterministic extraction of factual claims and citation IDs.
+- `src/evidence_matcher.py` — semantic and lexical evidence matching.
+- `src/rules.py` — deterministic contradiction, relevance, reliability, and citation rules.
+- `src/verifier.py` — orchestration, `verify_iter()` observability, and final verdict aggregation.
+- `src/reporting.py` — Markdown, CSV, JSON, and audit-package formatting.
+- `src/demo_presentation.py` — business-facing presentation and live verification rendering.
+- `app.py` — Gradio application and streaming demo callback.
+- `evals/run_evaluation.py` — deterministic synthetic benchmark runner and deployment gate.
 
 ## Technology
-
-This project uses:
 
 - Python 3.11+
 - Pydantic
 - Sentence Transformers
+- `sentence-transformers/all-MiniLM-L6-v2`
 - scikit-learn
 - pandas
 - Gradio
 - pytest
+- GitHub Actions
+- Hugging Face Spaces
 
-The application uses the local public model:
-
-- sentence-transformers/all-MiniLM-L6-v2
-
-No hosted AI API or API key is required.
+The semantic matcher uses a local public sentence-transformer model. No hosted LLM API or API key is required for runtime verification.
 
 ## Repository Structure
 
@@ -118,19 +201,22 @@ No hosted AI API or API key is required.
 app.py
 data/
   sample_cases.json
- evals/
+evals/
   evaluation_cases.json
   run_evaluation.py
 outputs/
 src/
-  schemas.py
   claim_extractor.py
+  demo_presentation.py
   evidence_matcher.py
-  rules.py
-  verifier.py
   reporting.py
+  rules.py
+  schemas.py
+  verifier.py
 tests/
+  test_presentation.py
   test_rules.py
+  test_verification_events.py
   test_verifier.py
 requirements.txt
 ```
@@ -145,7 +231,7 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-On Windows, activate the virtual environment with:
+On Windows:
 
 ```powershell
 .venv\Scripts\activate
@@ -161,7 +247,7 @@ The local interface opens on port 7860.
 
 ## Evidence Input Format
 
-Provide evidence as a JSON array of objects such as:
+Evidence is supplied as a JSON array:
 
 ```json
 [
@@ -177,87 +263,143 @@ Provide evidence as a JSON array of objects such as:
 
 Claims can cite evidence using forms such as:
 
-- [E1]
-- [E1, E2]
-- [E1][E2]
+- `[E1]`
+- `[E1, E2]`
+- `[E1][E2]`
+
+The `reliability_score` is supplied as an input. The agent does not independently establish source reliability.
 
 ## Demonstration Cases
 
-The repository includes synthetic, public-safe demonstration cases such as:
+The repository contains synthetic, public-safe examples including:
 
-- a fully supported launch report
-- a preliminary finding supported by low-reliability evidence
-- a contradicted revenue claim
+- a fully supported launch report,
+- a preliminary finding backed by low-reliability evidence,
+- and a contradicted revenue claim.
 
-These examples are fictional and intended for demonstration only.
+All demo data is fictional.
 
 ## Testing
 
 Run the automated suite with:
 
 ```bash
-pytest -q
+python -m pytest -q
 ```
 
-The current suite contains 16 automated tests covering:
+The current suite contains **20 automated tests** covering the verification rules and orchestration plus the retrofit's observability and presentation contracts, including:
 
-- supported claims
-- numerical contradictions
-- negation contradictions
-- missing citations
-- citation mismatches
-- irrelevant evidence
-- PASS, REVIEW, and FAIL orchestration
-- human-review escalation
+- supported claims,
+- numerical contradictions,
+- negation contradictions,
+- missing citations,
+- citation mismatches,
+- irrelevant evidence,
+- PASS / REVIEW / FAIL aggregation,
+- human-review escalation,
+- real incremental `verify_iter()` events,
+- preservation of the normal `verify()` API,
+- centered business-first presentation,
+- evidence-boundary language,
+- and streamed intermediate verification frames before the final verdict.
+
+The production-validated suite passed **20 tests in 2.93 seconds** on the final retrofit gate before human approval.
 
 ## Evaluation
 
-Run the synthetic evaluation set with:
+Run the synthetic benchmark with:
 
 ```bash
 python -m evals.run_evaluation
 ```
 
-The current evaluation suite contains six targeted cases. The most recent run reported:
+The evaluation suite contains six targeted cases:
 
-- 6 of 6 cases passed
-- case accuracy: 100%
-- verdict accuracy: 100%
-- claim-status accuracy: 100%
-- human-review accuracy: 100%
+1. two fully supported claims,
+2. numeric contradiction,
+3. negation contradiction,
+4. low-reliability supporting evidence,
+5. citation mismatch,
+6. insufficient relevant evidence.
 
-These results apply only to the small included synthetic evaluation set and are not evidence of general real-world accuracy. Detailed outputs are stored in:
+The production gate reported:
 
-- outputs/evaluation_results.csv
-- outputs/evaluation_summary.json
+- **6 of 6 cases passed**
+- case accuracy: **100%**
+- verdict accuracy: **100%**
+- claim-status accuracy: **100%**
+- human-review accuracy: **100%**
+
+These results apply only to the included synthetic benchmark. They are not evidence of general real-world verification accuracy.
+
+The evaluation runner now exits nonzero when any benchmark case fails, allowing the benchmark to function as a real deployment gate rather than an informational report only.
+
+## Test-Gated Deployment
+
+Production deployment follows:
+
+```text
+Push to main
+    |
+    v
+Install dependencies
+    |
+    v
+20 automated tests
+    |
+    v
+6-case verification evaluation
+    |
+    v
+Only if both are green
+    |
+    v
+GitHub -> Hugging Face Space
+```
+
+The deployment workflow prefers the repository deployment secret `HF_DEPLOY_TOKEN` while retaining compatibility with the older `HF_TOKEN` configuration.
+
+The final upgraded build passed both the automated suite and evaluation gate before the Hugging Face synchronization completed successfully.
 
 ## Audit Outputs
 
-Each verification can export:
+Each completed verification can export:
 
-- Markdown report
-- JSON report
-- CSV claim table
-- ZIP audit package
+- Markdown report,
+- JSON report,
+- CSV claim table,
+- and a ZIP audit package containing all three.
 
 ## Limitations
 
-This tool is intentionally heuristic and should be used carefully:
+This tool is intentionally bounded and heuristic:
 
-- similarity does not prove truth
-- the agent depends on the supplied evidence
-- deterministic contradiction detection is conservative and heuristic
-- nuanced paraphrases may be misclassified
-- source reliability is supplied by the user rather than independently established
-- complex multi-hop reasoning may require manual review
-- this tool should support, not replace, expert judgment in high-stakes decisions
+- semantic similarity does not prove truth,
+- the verifier depends on the supplied evidence collection,
+- deterministic contradiction detection is conservative,
+- nuanced paraphrases may be misclassified,
+- evidence reliability scores are supplied rather than independently established,
+- complex multi-hop reasoning may require expert review,
+- missing evidence can produce uncertainty rather than a definitive conclusion,
+- and high-stakes use should preserve qualified human judgment.
+
+The system is designed to **surface uncertainty**, not hide it.
 
 ## Privacy and Security
 
-- no API keys are required
-- no hosted LLM service is called
-- user-generated audit packages are written to temporary runtime storage
-- private documents should not be committed to the public repository
+- no hosted LLM API is required,
+- no runtime API key is required for verification,
+- audit packages are written to temporary runtime storage,
+- public examples use synthetic data,
+- and private documents or sensitive evidence should never be committed to this public repository.
+
+## Engineering Pattern
+
+Agent 6 established a reusable portfolio primitive:
+
+> **Sources provide the evidence. Deterministic rules classify support. Humans resolve uncertainty.**
+
+That primitive becomes a verification boundary reused by later workflow and multi-agent systems.
 
 ## License
 
