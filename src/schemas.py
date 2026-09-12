@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from enum import StrEnum
-from typing import Optional
+from typing import Literal, Optional
 
 from pydantic import BaseModel, Field
 
@@ -94,3 +94,22 @@ class VerificationReport(BaseModel):
     overall_confidence: float = Field(..., ge=0.0, le=1.0)
     human_review_required: bool
     summary: str = Field(..., min_length=1)
+
+
+class VerificationEvent(BaseModel):
+    """Observable event emitted from the real verification workflow."""
+
+    event: Literal[
+        "verification_started",
+        "claims_extracted",
+        "evidence_matching_started",
+        "evidence_matched",
+        "claim_verified",
+        "report_completed",
+    ]
+    message: str = Field(..., min_length=1)
+    claim: Claim | None = None
+    claims: list[Claim] = Field(default_factory=list)
+    matches: list[EvidenceMatch] = Field(default_factory=list)
+    claim_result: ClaimVerification | None = None
+    report: VerificationReport | None = None
