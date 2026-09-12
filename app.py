@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import os
-import shutil
 import tempfile
 import zipfile
 from pathlib import Path
@@ -11,8 +10,22 @@ from typing import Any
 import gradio as gr
 import pandas as pd
 
+from src.demo_presentation import (
+    APP_CSS,
+    ARCHITECTURE_MARKDOWN,
+    BUSINESS_CASE_HTML,
+    EVIDENCE_BOUNDARY_HTML,
+    HERO_HTML,
+    LIMITS_MARKDOWN,
+    VERDICT_GUIDE_HTML,
+    idle_activity_html,
+    render_activity,
+    render_claim_cards,
+    render_decision,
+    starting_activity_html,
+)
 from src.reporting import ReportFormatter
-from src.schemas import EvidenceItem
+from src.schemas import EvidenceItem, VerificationEvent, VerificationReport, VerificationRequest
 from src.verifier import VerificationAgent
 
 
@@ -31,6 +44,7 @@ def _load_sample_cases() -> list[dict[str, Any]]:
 
 
 SAMPLE_CASES = _load_sample_cases()
+DEFAULT_SAMPLE_TITLE = "Contradicted Revenue Claim"
 
 
 def load_sample(title: str) -> tuple[str, str, str]:
@@ -40,12 +54,15 @@ def load_sample(title: str) -> tuple[str, str, str]:
             answer_text = str(case.get("answer_text", ""))
             evidence_json = json.dumps(case.get("evidence", []), indent=2)
             description = (
-                f"**Description:** {case.get('description', '')}\n\n"
-                f"**Expected verdict:** {case.get('expected_verdict', '')}"
+                f"**Scenario:** {case.get('description', '')}\n\n"
+                f"**Expected evidence-review verdict:** {str(case.get('expected_verdict', '')).upper()}"
             )
             return answer_text, evidence_json, description
 
     raise gr.Error(f"Sample '{title}' could not be found.")
+
+
+DEFAULT_ANSWER, DEFAULT_EVIDENCE, DEFAULT_DESCRIPTION = load_sample(DEFAULT_SAMPLE_TITLE)
 
 
 def parse_evidence(evidence_json: str) -> list[EvidenceItem]:
@@ -68,7 +85,11 @@ def parse_evidence(evidence_json: str) -> list[EvidenceItem]:
         if not isinstance(item, dict):
             raise ValueError(f"Evidence item at index {index} must be an object.")
 
-        missing = [field for field in ["evidence_id", "text", "source", "source_type", "reliability_score"] if field not in item]
+        missing = [
+            field
+            for field in ["evidence_id", "text", "source", "source_type", "reliability_score"]
+            if field not in item
+        ]
         if missing:
             raise ValueError(f"Evidence item at index {index} is missing fields: {', '.join(missing)}")
 
@@ -88,7 +109,7 @@ def parse_evidence(evidence_json: str) -> list[EvidenceItem]:
     return evidence
 
 
-def create_audit_package(report: Any) -> str:
+def create_audit_package(report: VerificationReport) -> str:
     """Create a temporary audit package containing JSON, CSV, and Markdown outputs."""
     temp_dir = Path(tempfile.mkdtemp(prefix="verification_audit_", dir=None))
     report_dir = temp_dir / "report"
@@ -98,7 +119,10 @@ def create_audit_package(report: Any) -> str:
     csv_path = report_dir / "verification_report.csv"
     markdown_path = report_dir / "verification_report.md"
 
-    json_path.write_text(json.dumps(report.model_dump(mode="json"), indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    json_path.write_text(
+        json.dumps(report.model_dump(mode="json"), indent=2, ensure_ascii=False) + "\n",
+        encoding="utf-8",
+    )
     formatter.save_csv(report, csv_path)
     formatter.save_markdown(report, markdown_path)
 
@@ -112,7 +136,7 @@ def create_audit_package(report: Any) -> str:
 
 
 def run_verification(answer_text: str, evidence_json: str) -> tuple[str, pd.DataFrame, str, dict[str, Any], str]:
-    """Verify the supplied answer and return summary, claims, report, JSON, and an audit archive."""
+    """Preserve the original non-streaming verification callback contract."""
     if not answer_text or not str(answer_text).strip():
         raise gr.Error("Please enter an AI-generated answer before verifying.")
 
@@ -128,73 +152,198 @@ def run_verification(answer_text: str, evidence_json: str) -> tuple[str, pd.Data
     return summary_markdown, claims_dataframe, detailed_markdown, structured_json, audit_package
 
 
-def build_app() -> gr.Blocks:
-    """Build the Gradio interface for the verification workflow."""
-    with gr.Blocks(title="Verification, Validation & Evidence Agent") as demo:
-        gr.Markdown(
-            "The agent audits AI-generated factual claims against supplied evidence. "
-            "Semantic and lexical matching retrieve relevant evidence. Deterministic rules assign statuses and overall verdicts. "
-            "Human review is required for contradictions, unverifiable claims, missing citations, or citation mismatches. "
-            "The tool does not independently prove that supplied source documents are truthful."
+def _stream_outputs(events: list[VerificationEvent], report: VerificationReport | None = None):
+    complete = report is not None
+    if report is None:
+        return (
+            render_activity(events, complete=False),
+            render_decision(None),
+            render_claim_cards(None),
+            pd.DataFrame(),
+            "*Detailed audit content will appear after verification completes.*",
+            {},
+            None,
         )
 
-        with gr.Row():
-            with gr.Column(scale=1):
-                gr.Markdown("### Try a Demonstration")
+    return (
+        render_activity(events, complete=True),
+        render_decision(report),
+        render_claim_cards(report),
+        formatter.claims_dataframe(report),
+        formatter.full_markdown(report),
+        report.model_dump(mode="json"),
+        create_audit_package(report),
+    )
+
+
+def stream_verification(answer_text: str, evidence_json: str):
+    """Stream real verification-stage events into the business-facing demo."""
+    if not answer_text or not str(answer_text).strip():
+        yield (
+            idle_activity_html(),
+            '<div class="decision-card">Please enter an AI-generated answer before verifying.</div>',
+            render_claim_cards(None),
+            pd.DataFrame(),
+            "",
+            {},
+            None,
+        )
+        return
+
+    yield (
+        starting_activity_html(),
+        render_decision(None),
+        render_claim_cards(None),
+        pd.DataFrame(),
+        "*Verification is running.*",
+        {},
+        None,
+    )
+
+    events: list[VerificationEvent] = []
+
+    try:
+        evidence = parse_evidence(evidence_json)
+        request = VerificationRequest(answer_text=str(answer_text).strip(), evidence=evidence)
+
+        for event in agent.verify_iter(request):
+            events.append(event)
+            yield _stream_outputs(events, report=event.report)
+
+    except Exception as exc:
+        safe_message = str(exc) if isinstance(exc, ValueError) else "Verification could not complete."
+        yield (
+            render_activity(events, complete=True),
+            f'<div class="decision-card"><strong>Verification stopped.</strong><br>{safe_message}</div>',
+            render_claim_cards(None),
+            pd.DataFrame(),
+            "Verification stopped before a final report was produced.",
+            {},
+            None,
+        )
+
+
+def build_app() -> gr.Blocks:
+    """Build the business-first Gradio interface for the verification workflow."""
+    with gr.Blocks(title="Verification, Validation & Evidence Agent") as demo:
+        with gr.Column(elem_classes=["agent-shell"]):
+            gr.HTML(HERO_HTML)
+            gr.HTML(BUSINESS_CASE_HTML)
+
+            gr.Markdown("## The evidence boundary")
+            gr.HTML(EVIDENCE_BOUNDARY_HTML)
+
+            gr.Markdown("## What the three verdicts mean")
+            gr.HTML(VERDICT_GUIDE_HTML)
+
+            gr.Markdown("## Review an AI-generated answer")
+            with gr.Row():
                 demo_dropdown = gr.Dropdown(
                     choices=[case["title"] for case in SAMPLE_CASES],
-                    label="Sample Cases",
-                    value=SAMPLE_CASES[0]["title"],
+                    label="Synthetic demonstration",
+                    value=DEFAULT_SAMPLE_TITLE,
+                    scale=3,
                 )
-                load_button = gr.Button("Load Demonstration")
-                sample_output = gr.Markdown()
+                load_button = gr.Button("Load selected case", scale=1)
 
-        with gr.Group():
-            gr.Markdown("### Verify Claims")
-            answer_input = gr.Textbox(label="AI-Generated Answer", lines=8)
-            evidence_input = gr.Textbox(
-                label="Evidence JSON",
-                lines=12,
-                value='[\n  {\n    "evidence_id": "E1",\n    "text": "The project launched on June 15.",\n    "source": "Launch report",\n    "source_type": "report",\n    "reliability_score": 0.95\n  }\n]',
+            sample_output = gr.Markdown(DEFAULT_DESCRIPTION)
+            answer_input = gr.Textbox(
+                label="AI-generated answer under review",
+                lines=5,
+                value=DEFAULT_ANSWER,
             )
-            gr.Markdown(
-                "Example evidence format:\n```json\n[\n  {\n    \"evidence_id\": \"E1\",\n    \"text\": \"The project launched on June 15.\",\n    \"source\": \"Launch report\",\n    \"source_type\": \"report\",\n    \"reliability_score\": 0.95\n  }\n]\n```"
-            )
+
+            with gr.Accordion("Supplied evidence record", open=False):
+                evidence_input = gr.Textbox(
+                    label="Evidence JSON",
+                    lines=12,
+                    value=DEFAULT_EVIDENCE,
+                )
+                gr.Markdown(
+                    "The verifier uses only this supplied evidence collection. Reliability scores are "
+                    "inputs to the demo and are not independently established by the agent."
+                )
 
             with gr.Row():
-                verify_button = gr.Button("Verify Claims", variant="primary")
+                verify_button = gr.Button("Run evidence review", variant="primary")
                 clear_button = gr.Button("Clear")
 
-        with gr.Tab("Summary"):
-            summary_output = gr.Markdown()
-        with gr.Tab("Claim Results"):
-            claims_output = gr.Dataframe(label="Claim Results", interactive=False)
-        with gr.Tab("Detailed Report"):
-            detailed_output = gr.Markdown()
-        with gr.Tab("Structured JSON"):
-            json_output = gr.JSON()
-        with gr.Tab("Download"):
-            download_output = gr.File(label="Download Audit Package")
+            activity_output = gr.HTML(idle_activity_html())
 
-        def load_demo(selected_title: str) -> tuple[str, str, str]:
-            return load_sample(selected_title)
+            with gr.Tabs():
+                with gr.Tab("Decision Review"):
+                    decision_output = gr.HTML(render_decision(None))
+                    claim_cards_output = gr.HTML(render_claim_cards(None))
 
-        load_button.click(load_demo, inputs=demo_dropdown, outputs=[answer_input, evidence_input, sample_output])
+                with gr.Tab("Claim Audit"):
+                    claims_output = gr.Dataframe(label="Claim-level verification results", interactive=False)
 
-        verify_button.click(
-            run_verification,
-            inputs=[answer_input, evidence_input],
-            outputs=[summary_output, claims_output, detailed_output, json_output, download_output],
-        )
+                with gr.Tab("Evidence & Limits"):
+                    gr.Markdown(LIMITS_MARKDOWN)
 
-        def clear_inputs() -> tuple[str, str, str, pd.DataFrame, str, dict[str, Any], str]:
-            return "", "", "", pd.DataFrame(), "", {}, ""
+                with gr.Tab("Engineering Audit"):
+                    detailed_output = gr.Markdown()
+                    json_output = gr.JSON(label="Structured verification report")
 
-        clear_button.click(
-            clear_inputs,
-            inputs=None,
-            outputs=[answer_input, evidence_input, summary_output, claims_output, detailed_output, json_output, download_output],
-        )
+                with gr.Tab("Architecture"):
+                    gr.Markdown(ARCHITECTURE_MARKDOWN)
+
+                with gr.Tab("Download"):
+                    download_output = gr.File(label="Download JSON / CSV / Markdown audit package")
+
+            load_button.click(
+                load_sample,
+                inputs=demo_dropdown,
+                outputs=[answer_input, evidence_input, sample_output],
+                show_progress="hidden",
+            )
+
+            verify_button.click(
+                stream_verification,
+                inputs=[answer_input, evidence_input],
+                outputs=[
+                    activity_output,
+                    decision_output,
+                    claim_cards_output,
+                    claims_output,
+                    detailed_output,
+                    json_output,
+                    download_output,
+                ],
+                show_progress="hidden",
+            )
+
+            def clear_inputs():
+                return (
+                    "",
+                    "",
+                    "",
+                    idle_activity_html(),
+                    render_decision(None),
+                    render_claim_cards(None),
+                    pd.DataFrame(),
+                    "",
+                    {},
+                    None,
+                )
+
+            clear_button.click(
+                clear_inputs,
+                inputs=None,
+                outputs=[
+                    answer_input,
+                    evidence_input,
+                    sample_output,
+                    activity_output,
+                    decision_output,
+                    claim_cards_output,
+                    claims_output,
+                    detailed_output,
+                    json_output,
+                    download_output,
+                ],
+                show_progress="hidden",
+            )
 
     return demo
 
@@ -204,4 +353,4 @@ demo = build_app()
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", "7860"))
-    demo.launch(server_name="0.0.0.0", server_port=port)
+    demo.launch(server_name="0.0.0.0", server_port=port, css=APP_CSS)
