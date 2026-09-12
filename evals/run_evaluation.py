@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 import sys
 from pathlib import Path
-from typing import Any
 
 import pandas as pd
 
@@ -27,7 +26,7 @@ def load_cases(path: str | Path) -> list[dict[str, object]]:
 def evaluate_cases(
     cases: list[dict[str, object]],
     agent: VerificationAgent | None = None,
-) -> tuple[pandas.DataFrame, dict[str, object]]:
+) -> tuple[pd.DataFrame, dict[str, object]]:
     """Evaluate the provided cases and return detailed results plus a summary."""
     agent = agent if agent is not None else VerificationAgent()
 
@@ -132,7 +131,7 @@ def evaluate_cases(
 
 
 def save_results(
-    dataframe: pandas.DataFrame,
+    dataframe: pd.DataFrame,
     summary: dict[str, object],
     output_directory: str | Path = "outputs",
 ) -> tuple[Path, Path]:
@@ -150,7 +149,7 @@ def save_results(
 
 
 def main() -> None:
-    """Run the evaluation workflow end to end."""
+    """Run the evaluation workflow end to end and fail when any benchmark case fails."""
     cases = load_cases(Path("evals") / "evaluation_cases.json")
     dataframe, summary = evaluate_cases(cases)
     results_path, summary_path = save_results(dataframe, summary)
@@ -159,6 +158,11 @@ def main() -> None:
     print(json.dumps(summary, indent=2))
     print(results_path)
     print(summary_path)
+
+    if int(summary["failed_cases"]) > 0:
+        raise SystemExit(
+            f"Verification evaluation failed: {summary['failed_cases']} of {summary['total_cases']} cases failed."
+        )
 
 
 if __name__ == "__main__":
