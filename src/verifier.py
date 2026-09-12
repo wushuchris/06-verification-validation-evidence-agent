@@ -1,12 +1,16 @@
 from __future__ import annotations
 
+from collections.abc import Iterator
+
 from src.claim_extractor import ClaimExtractor
 from src.evidence_matcher import EvidenceMatcher
 from src.rules import VerificationRules
 from src.schemas import (
     ClaimStatus,
+    ClaimVerification,
     EvidenceItem,
     OverallVerdict,
+    VerificationEvent,
     VerificationReport,
     VerificationRequest,
 )
@@ -26,18 +30,8 @@ class VerificationAgent:
         self.evidence_matcher = evidence_matcher if evidence_matcher is not None else EvidenceMatcher()
         self.rules = rules if rules is not None else VerificationRules()
 
-    def verify(self, request: VerificationRequest) -> VerificationReport:
-        """Verify a full answer against the provided evidence and return an aggregated report."""
-        claims = self.claim_extractor.extract(request.answer_text)
-        if not claims:
-            raise ValueError("No verifiable factual claims were found in the provided answer text.")
-
-        matches_by_claim = self.evidence_matcher.match_claims(claims, request.evidence)
-        claim_results = []
-        for claim in claims:
-            matches = matches_by_claim.get(claim.claim_id, [])
-            claim_results.append(self.rules.verify_claim(claim, request.evidence, matches))
-
+    def _build_report(self, claim_results: list[ClaimVerification]) -> VerificationReport:
+        """Aggregate verified claims into the deterministic final report."""
         status_counts = {status: 0 for status in ClaimStatus}
         for result in claim_results:
             status_counts[result.status] += 1
@@ -88,6 +82,84 @@ class VerificationAgent:
             human_review_required=human_review_required,
             summary=summary,
         )
+
+    def verify_iter(self, request: VerificationRequest) -> Iterator[VerificationEvent]:
+        """Yield observable events from the real deterministic verification workflow."""
+        yield VerificationEvent(
+            event="verification_started",
+            message=(
+                f"Verification started with {len(request.evidence)} supplied evidence item"
+                f"{'s' if len(request.evidence) != 1 else ''}."
+            ),
+        )
+
+        claims = self.claim_extractor.extract(request.answer_text)
+        if not claims:
+            raise ValueError("No verifiable factual claims were found in the provided answer text.")
+
+        yield VerificationEvent(
+            event="claims_extracted",
+            message=f"Extracted {len(claims)} factual claim{'s' if len(claims) != 1 else ''} for review.",
+            claims=claims,
+        )
+
+        yield VerificationEvent(
+            event="evidence_matching_started",
+            message="Matching each claim against the supplied evidence using semantic and lexical relevance.",
+            claims=claims,
+        )
+
+        matches_by_claim = self.evidence_matcher.match_claims(claims, request.evidence)
+        claim_results: list[ClaimVerification] = []
+
+        for claim in claims:
+            matches = matches_by_claim.get(claim.claim_id, [])
+            yield VerificationEvent(
+                event="evidence_matched",
+                message=(
+                    f"Matched {len(matches)} evidence item{'s' if len(matches) != 1 else ''} "
+                    f"to {claim.claim_id}."
+                ),
+                claim=claim,
+                matches=matches,
+            )
+
+            result = self.rules.verify_claim(claim, request.evidence, matches)
+            claim_results.append(result)
+
+            yield VerificationEvent(
+                event="claim_verified",
+                message=(
+                    f"{claim.claim_id} classified as {result.status.value.replace('_', ' ')}"
+                    f"{' and flagged for human review' if result.human_review_required else ''}."
+                ),
+                claim=claim,
+                matches=matches,
+                claim_result=result,
+            )
+
+        report = self._build_report(claim_results)
+
+        yield VerificationEvent(
+            event="report_completed",
+            message=(
+                f"Verification complete: {report.verdict.value.upper()}"
+                f"{' with human review required' if report.human_review_required else ''}."
+            ),
+            report=report,
+        )
+
+    def verify(self, request: VerificationRequest) -> VerificationReport:
+        """Verify a full answer and return the final report from the observable workflow."""
+        final_report: VerificationReport | None = None
+        for event in self.verify_iter(request):
+            if event.report is not None:
+                final_report = event.report
+
+        if final_report is None:
+            raise RuntimeError("Verification completed without producing a report.")
+
+        return final_report
 
     def verify_text(self, answer_text: str, evidence: list[EvidenceItem]) -> VerificationReport:
         """Construct a verification request from plain text and evidence and verify it."""
